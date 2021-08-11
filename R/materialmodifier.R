@@ -167,7 +167,7 @@ get_image_name_from_file = function( file ){
 #' Save an image to disk
 #' @param im An image.
 #' @param name Name of the image file.
-#' @param path The image is saved in this direcory. For example, path = getwd()
+#' @param path The image is saved in this directory. For example, path = getwd()
 #' @param format Image format. Either "jpg", "png", "tiff", or "bmp". Default is "png".
 #' @param quality (jpg only) default is 0.95. Higher quality means less compression.
 #' @return No return value, called for side effects.
@@ -856,7 +856,7 @@ im_resize_limit = function( im, bound, interpolation = 1 ){
 
 
 im_resize_limit_min = function( im, bound, interpolation = 1 ){
-  if( min( im_size( im ) ) < bound ){
+  if( min( im_size( im ) ) <= bound ){
     return( im )
   }
   if( im_width( im ) > im_height( im ) ){
@@ -1333,9 +1333,11 @@ get_BS_energy = function( im, mask ){
 #' @param strength A numeric, which controls the strength of the effect. Strength values between 0 and 1 will
 #' reduce a feature, while strength values larger than 1 will boost a feature. A strength value of 1 does nothing.
 #' Negative values are allowed, which will invert a feature.
-#' @param max_size If the shorter side of the input image is larger than this value (the default is 1024),
+#' @param max_size If the shorter side of the input image is larger than this value (the default is 1280),
 #' input image is resized before applying effects. Because the modif() function is very slow for large-resolution
 #' images, it is useful to limit the image resolution to speed-up the image processing.
+#' If you do not want to change the resolution of the input image, you can enter a large value for max_size,
+#' or set max_size = NA
 #' @param log_epsilon Offset for log transformation (default is 0.0001).
 #' Need not to change this value in most cases.
 #' @param filter_epsilon Epsilon parameter of the Guided filter (default is 0.01).
@@ -1348,7 +1350,8 @@ get_BS_energy = function( im, mask ){
 #' plot(modif(face, effect = c("shine", "stain"), strength = c(0.2, 3))) # Less shiny and more stain
 #' }
 #' @export
-modif = function( im, effect, strength, max_size = 1024, log_epsilon = 0.0001, filter_epsilon = 0.01 ){
+modif = function( im, effect, strength, max_size = 1280, log_epsilon = 0.0001, filter_epsilon = 0.01 ){
+  effect = modif_BSNameToEffectName( effect )
   is_invalid_name = ! effect %in% c( "gloss", "shine", "spots", "blemish", "rough", "stain", "shadow", "aging" )
   if( any( is_invalid_name ) ){
     warning( paste0( "Invalid effect name: ",
@@ -1358,7 +1361,12 @@ modif = function( im, effect, strength, max_size = 1024, log_epsilon = 0.0001, f
   if( all( strength == 1 ) ){
     return( im )
   }
-  im = im_resize_limit_min( im, max_size )
+  if( length( effect ) > 1 && length( strength ) == 1 ){
+    strength = rep( strength, length( effect ) )
+  }
+  if( ! is.na( max_size ) ){
+    im = im_resize_limit_min( im, max_size )
+  }
 
   if( im_nc( im ) == 3 ){
     lab = sRGB2Lab( im )
@@ -1380,7 +1388,7 @@ modif = function( im, effect, strength, max_size = 1024, log_epsilon = 0.0001, f
 #'
 #' @param im An input image.
 #' @param params A list of parameter values. Parameter names are freq, amp, sign, and strength.
-#' @param max_size If the shorter side of the input image is larger than this value (the default is 1024),
+#' @param max_size If the shorter side of the input image is larger than this value (the default is 1280),
 #' input image is resized. The modif function is very slow for large-resolution images.
 #' @param log_epsilon Offset for log transformation (default is 0.0001).
 #' Need not to change this value in most cases.
@@ -1407,8 +1415,11 @@ modif = function( im, effect, strength, max_size = 1024, log_epsilon = 0.0001, f
 #' plot(modif2(face, params = list(blemish, smooth)))
 #' }
 #' @export
-modif2 = function( im, params, max_size = 1024, log_epsilon = 0.0001, filter_epsilon = 0.01 ){
-  im = im_resize_limit_min( im, max_size )
+modif2 = function( im, params, max_size = 1280, log_epsilon = 0.0001, filter_epsilon = 0.01 ){
+  if( ! is.na( max_size ) ){
+    im = im_resize_limit_min( im, max_size )
+  }
+
 
   if( im_nc( im ) == 3 ){
     lab = sRGB2Lab( im )
@@ -1423,6 +1434,34 @@ modif2 = function( im, params, max_size = 1024, log_epsilon = 0.0001, filter_eps
   rec = clamping( gf_reconstruct( dec ) )
 
   return( rec )
+}
+
+
+#' Check the scale information of an image
+#'
+#' @param im An image.
+#' @return A list of depth (number of scale subband images), indexes of high amplitude subbands,
+#' and indexes of low amplitude subbands.
+#' @examples
+#' modif_dim(face)
+#' @export
+modif_dim = function( im ){
+  depth = floor( log2( min( im_size( im ) ) ) ) - 1
+  high = 1:floor( depth / 2 )
+  low = ( floor( depth / 2 ) + 1 ):depth
+  return( list( depth = depth, high = high, low = low ) )
+}
+
+
+modif_BSNameToEffectName = function( effect ){
+  effect = stringr::str_replace( effect, "HLA", "blemish" )
+  effect = stringr::str_replace( effect, "HHA", "gloss" )
+  effect = stringr::str_replace( effect, "HLP", "rough" )
+  effect = stringr::str_replace( effect, "LAN", "shadow" )
+  effect = stringr::str_replace( effect, "HHP", "shine" )
+  effect = stringr::str_replace( effect, "HHN", "spots" )
+  effect = stringr::str_replace( effect, "HLN", "stain" )
+  return( effect )
 }
 
 
@@ -1451,16 +1490,16 @@ modif_set_params = function( effects, strength, depth ){
     }
   } else {
     defaults = data.frame(
-      effect = c( "gloss", "shine", "spots", "blemish", "rough", "stain", "shadow" ),
-      freq = c( "H", "H", "H", "H", "H", "H", "L" ),
-      amp  = c( "H", "H", "H", "L", "L", "L", "A" ),
-      sign = c( "A", "P", "N", "A", "P", "N", "N" ),
-      strength = c( 2, 2, 3.5, 2.5, 2.5, 2.5, 3.5 ),
+      effect = c( "blemish", "gloss", "rough", "shadow", "shine", "spots", "stain" ),
+      freq = c( "H", "H", "H", "L", "H", "H", "H" ),
+      amp  = c( "L", "H", "L", "A", "H", "H", "L" ),
+      sign = c( "A", "A", "P", "N", "P", "N", "N" ),
+      strength = c( 2.5, 2, 2.5, 3.5, 2, 3.5, 2.5 ),
       stringsAsFactors = FALSE
     )
     params = defaults[ defaults$effect %in% effects, ]
     if( ! missing( strength ) ){
-      params$strength = strength
+      params$strength = strength[ base::sort( effects, index.return = TRUE )$ix ]
     }
     params = do.call( function(...) base::Map(list, ...), params ) # rows to a list
     params = unname( params )
